@@ -1,0 +1,434 @@
+#include <lpc17xx.h> // Include LPC1768 CMSIS library
+#include <stdint.h> // Include standard integer types
+
+// Define pre-defined password
+#define PASSWORD_LENGTH 4 // Define the length of the password
+unsigned int predefinedPassword[PASSWORD_LENGTH] = {1, 2, 3, 4}; // Define the pre-defined password
+
+// LCD control lines
+#define RS_PIN 4 // Define RS (Register Select) pin for LCD
+#define EN_PIN 5 // Define EN (Enable) pin for LCD
+#define D4_PIN 6 // Define data pin D4 for LCD
+#define D5_PIN 7 // Define data pin D5 for LCD
+#define D6_PIN 8 // Define data pin D6 for LCD
+#define D7_PIN 9 // Define data pin D7 for LCD
+
+// Define keypad characters corresponding to switches
+const char keypadChars[] = {
+    '1', '2', '3', 'A',
+    '4', '5', '6', 'B',
+    '7', '8', '9', 'C',
+    '*', '0', '#', 'D'
+};
+
+// Function prototypes
+void GPIO_Init(void); // Function prototype for initializing GPIO pins
+void LCD_Init(void); // Function prototype for initializing LCD
+void LCD_Command(unsigned int command); // Function prototype for sending command to LCD
+void LCD_Data(unsigned int data); // Function prototype for sending data to LCD
+void LCD_String(const char *str); // Function prototype for displaying string on LCD
+void EnableKeyboard(void); // Function prototype for enabling keyboard
+void ReadPassword(char *inputPassword); // Function prototype for reading password from switches
+unsigned int ComparePasswords(unsigned int *inputPassword, unsigned int *predefinedPassword); // Function prototype for comparing passwords
+
+volatile int i; // Declare i globally
+
+int main(void) {
+    char inputPassword[PASSWORD_LENGTH + 1]; // Define array to store input password (+1 for null terminator)
+    
+    // Initialize GPIO pins
+    GPIO_Init();
+    
+    // Initialize LCD
+    LCD_Init();
+    
+    while (1) {
+        // Clear LCD
+        LCD_Command(0x01); // Send command to clear display
+        
+        // Enable keyboard
+        EnableKeyboard();
+        
+        // Read password from switches and display asterisks
+        ReadPassword(inputPassword);
+        
+        // Compare passwords
+        if (ComparePasswords((unsigned int *)inputPassword, predefinedPassword)) {
+            // Light up green LED and display "Access Granted"
+            LPC_GPIO0->FIOPIN |= (1 << 10); // Turn on green LED
+            LPC_GPIO0->FIOPIN &= ~(1 << 11); // Turn off red LED
+            LCD_Command(0xC0); // Move cursor to the second line
+            LCD_String("Access Granted"); // Display message on LCD
+        } else {
+            // Light up red LED and display "Access Denied"
+            LPC_GPIO0->FIOPIN |= (1 << 11); // Turn on red LED
+            LPC_GPIO0->FIOPIN &= ~(1 << 10); // Turn off green LED
+            LCD_Command(0xC0); // Move cursor to the second line
+            LCD_String("Access Denied"); // Display message on LCD
+        }
+        
+        // Delay for some time before clearing the LCD and reading password again
+        for (i = 0; i < 1000000; i++); // Delay
+    }
+}
+
+// Function to initialize GPIO pins
+void GPIO_Init(void) {
+    // Configure LEDs and LCD control pins as GPIO
+    LPC_PINCON->PINSEL0 &= ~(0xFF); // Configure P0.4 to P0.11 as GPIO
+    LPC_GPIO0->FIODIR |= (0xFF << 4); // Configure P0.4 to P0.11 as output
+}
+
+// Function to initialize LCD
+void LCD_Init(void) {
+    // Wait for LCD to power up
+    for (i = 0; i < 20000; i++); // Delay for LCD initialization
+    // Initialize LCD in 4-bit mode
+    LCD_Command(0x33); // Send initialization command
+    LCD_Command(0x32); // Send initialization command
+    LCD_Command(0x28); // Send initialization command
+    LCD_Command(0x0C); // Send initialization command
+    LCD_Command(0x01); // Send initialization command
+    LCD_Command(0x06); // Send initialization command
+}
+
+// Function to send command to LCD
+void LCD_Command(unsigned int command) {
+    // Send higher nibble of command
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= (((command >> 4) & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    // Send lower nibble of command
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= ((command & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    for (i = 0; i < 10000; i++); // Delay
+}
+
+// Function to send data to LCD
+void LCD_Data(unsigned int data) {
+    // Send higher nibble of data
+    LPC_GPIO0->FIOPIN |= (1 << RS_PIN); // Set RS pin for data
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= (((data >> 4) & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    // Send lower nibble of data
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= ((data & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    for (i = 0; i < 10000; i++); // Delay
+}
+
+// Function to display string on LCD
+void LCD_String(const char *str) {
+    while (*str) {
+        LCD_Data(*str++); // Send each character to LCD
+    }
+}
+
+// Function to enable keyboard
+void EnableKeyboard(void) {
+    // Configure pins for switches as input
+    LPC_GPIO2->FIODIR &= ~(0xF); // Configure P2.0 to P2.3 as input
+}
+
+// Function to read password from switches and display characters on LCD
+void ReadPassword(char *inputPassword) {
+    for (i = 0; i < PASSWORD_LENGTH; i++) {
+        char keypadChar;
+        // Wait until a switch is pressed
+        while (1) {
+            // Read the state of switches
+            unsigned int switchState = (LPC_GPIO2->FIOPIN >> 0) & 0xF;
+            if (switchState != 0xF) { // If any switch is pressed
+                // Find the index of the pressed switch
+                int switchIndex;
+                for (switchIndex = 0; switchIndex < 4; switchIndex++) {
+                    if (!(switchState & (1 << switchIndex))) {
+                        break;
+                    }
+                }
+                // Get the corresponding character from keypadChars
+                keypadChar = keypadChars[i * 4 + switchIndex];
+                // Check if the '#' key is pressed to delete one character
+                if (keypadChar == '#') {
+                    // Delete the last character if available
+                    if (i > 0) {
+                        // Move back the cursor
+                        LCD_Command(0x10);
+                        // Clear the last character on LCD
+                        LCD_Data(' ');
+                        // Move back the cursor again
+                        LCD_Command(0x10);
+                        // Decrement the index to overwrite the deleted character
+                        i--;
+                    }
+                } else {
+                    // Store the character in the inputPassword array
+                    inputPassword[i] = keypadChar;
+                    // Display the character on LCD
+                    LCD_Data('*');
+                    // Move forward the cursor
+                    LCD_Command(0x14);
+                    // Break out of the loop
+                    break;
+                }
+            }
+        }
+    }
+    // Null-terminate the inputPassword array
+    inputPassword[PASSWORD_LENGTH] = '\0';
+}
+
+// Function to compare passwords
+unsigned int ComparePasswords(unsigned int *inputPassword, unsigned int *predefinedPassword) {
+    for (i = 0; i < PASSWORD_LENGTH; i++) {
+        if (inputPassword[i] != predefinedPassword[i]) {
+            return 0; // Return 0 if passwords don't match
+        }
+    }
+    return 1; // Return 1 if passwords match
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+#include <lpc17xx.h> // Include LPC1768 CMSIS library
+#include <stdint.h> // Include standard integer types
+
+// Define pre-defined password
+#define PASSWORD_LENGTH 4 // Define the length of the password
+uint8_t predefinedPassword[PASSWORD_LENGTH] = {1, 2, 3, 4}; // Define the pre-defined password
+
+// LCD control lines
+#define RS_PIN 21 // Define RS (Register Select) pin for LCD
+#define EN_PIN 22 // Define EN (Enable) pin for LCD
+#define D4_PIN 23 // Define data pin D4 for LCD
+#define D5_PIN 24 // Define data pin D5 for LCD
+#define D6_PIN 25 // Define data pin D6 for LCD
+#define D7_PIN 26 // Define data pin D7 for LCD
+
+// Define keypad characters corresponding to switches
+const char keypadChars[] = {
+    '1', '2', '3', 'A',
+    '4', '5', '6', 'B',
+    '7', '8', '9', 'C',
+    '*', '0', '#', 'D'
+};
+
+// Function prototypes
+void GPIO_Init(void); // Function prototype for initializing GPIO pins
+void LCD_Init(void); // Function prototype for initializing LCD
+void LCD_Command(uint8_t command); // Function prototype for sending command to LCD
+void LCD_Data(uint8_t data); // Function prototype for sending data to LCD
+void LCD_String(const char *str); // Function prototype for displaying string on LCD
+void EnableKeyboard(void); // Function prototype for enabling keyboard
+void ReadPassword(char *inputPassword); // Function prototype for reading password from switches
+uint8_t ComparePasswords(uint8_t *inputPassword, uint8_t *predefinedPassword); // Function prototype for comparing passwords
+
+volatile int i; // Declare i globally
+
+int main(void) {
+    char inputPassword[PASSWORD_LENGTH + 1]; // Define array to store input password (+1 for null terminator)
+    
+    // Initialize GPIO pins
+    GPIO_Init();
+    
+    // Initialize LCD
+    LCD_Init();
+    
+    while (1) {
+        // Clear LCD
+        LCD_Command(0x01); // Send command to clear display
+        
+        // Enable keyboard
+        EnableKeyboard();
+        
+        // Read password from switches and display asterisks
+        ReadPassword(inputPassword);
+        
+        // Compare passwords
+        if (ComparePasswords((uint8_t *)inputPassword, predefinedPassword)) {
+            // Light up green LED and display "Access Granted"
+            LPC_GPIO0->FIOPIN |= (1 << 10); // Turn on green LED
+            LPC_GPIO0->FIOPIN &= ~(1 << 11); // Turn off red LED
+            LCD_Command(0xC0); // Move cursor to the second line
+            LCD_String("Access Granted"); // Display message on LCD
+        } else {
+            // Light up red LED and display "Access Denied"
+            LPC_GPIO0->FIOPIN |= (1 << 11); // Turn on red LED
+            LPC_GPIO0->FIOPIN &= ~(1 << 10); // Turn off green LED
+            LCD_Command(0xC0); // Move cursor to the second line
+            LCD_String("Access Denied"); // Display message on LCD
+        }
+        
+        // Delay for some time before clearing the LCD and reading password again
+        for (i = 0; i < 1000000; i++); // Delay
+    }
+}
+
+// Function to initialize GPIO pins
+void GPIO_Init(void) {
+    // Configure LEDs and LCD control pins as GPIO
+    LPC_PINCON->PINSEL0 &= ~(0xFF); // Configure P0.10 to P0.17 as GPIO
+    LPC_GPIO0->FIODIR |= (0xFF << 10); // Configure P0.10 to P0.17 as output
+    // Configure LCD control pins as GPIO
+    LPC_PINCON->PINSEL1 &= ~(0x3F << 10); // Configure P0.21 to P0.26 as GPIO
+    LPC_GPIO0->FIODIR |= (0x3F << 21); // Configure P0.21 to P0.26 as output
+}
+
+// Function to initialize LCD
+void LCD_Init(void) {
+    // Wait for LCD to power up
+    for (i = 0; i < 20000; i++); // Delay for LCD initialization
+    // Initialize LCD in 4-bit mode
+    LCD_Command(0x33); // Send initialization command
+    LCD_Command(0x32); // Send initialization command
+    LCD_Command(0x28); // Send initialization command
+    LCD_Command(0x0C); // Send initialization command
+    LCD_Command(0x01); // Send initialization command
+    LCD_Command(0x06); // Send initialization command
+}
+
+// Function to send command to LCD
+void LCD_Command(uint8_t command) {
+    // Send higher nibble of command
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= (((command >> 4) & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    // Send lower nibble of command
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= ((command & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    for (i = 0; i < 10000; i++); // Delay
+}
+
+// Function to send data to LCD
+void LCD_Data(uint8_t data) {
+    // Send higher nibble of data
+    LPC_GPIO0->FIOPIN |= (1 << RS_PIN); // Set RS pin for data
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= (((data >> 4) & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    // Send lower nibble of data
+    LPC_GPIO0->FIOPIN &= ~(0xF << D4_PIN); // Clear data pins
+    LPC_GPIO0->FIOPIN |= ((data & 0x0F) << D4_PIN); // Set data pins
+    LPC_GPIO0->FIOPIN |= (1 << EN_PIN); // Enable LCD
+    for (i = 0; i < 100; i++); // Delay
+    LPC_GPIO0->FIOPIN &= ~(1 << EN_PIN); // Disable LCD
+    for (i = 0; i < 10000; i++); // Delay
+}
+
+// Function to display string on LCD
+void LCD_String(const char *str) {
+    while (*str) {
+        LCD_Data(*str++); // Send each character to LCD
+    }
+}
+
+// Function to enable keyboard
+void EnableKeyboard(void) {
+    // Configure pins for switches as input
+    LPC_GPIO2->FIODIR &= ~(0xF); // Configure P2.0 to P2.3 as input
+}
+
+// Function to read password from switches and display characters on LCD
+void ReadPassword(char *inputPassword) {
+    for (i = 0; i < PASSWORD_LENGTH; i++) {
+        char keypadChar;
+        // Wait until a switch is pressed
+        while (1) {
+            // Read the state of switches
+            uint8_t switchState = (LPC_GPIO2->FIOPIN >> 0) & 0xF;
+            if (switchState != 0xF) { // If any switch is pressed
+                // Find the index of the pressed switch
+                int switchIndex;
+                for (switchIndex = 0; switchIndex < 4; switchIndex++) {
+                    if (!(switchState & (1 << switchIndex))) {
+                        break;
+                    }
+                }
+                // Get the corresponding character from keypadChars
+                keypadChar = keypadChars[i * 4 + switchIndex];
+                // Check if the '#' key is pressed to delete one character
+                if (keypadChar == '#') {
+                    // Delete the last character if available
+                    if (i > 0) {
+                        // Move back the cursor
+                        LCD_Command(0x10);
+                        // Clear the last character on LCD
+                        LCD_Data(' ');
+                        // Move back the cursor again
+                        LCD_Command(0x10);
+                        // Decrement the index to overwrite the deleted character
+                        i--;
+                    }
+                } else {
+                    // Store the character in the inputPassword array
+                    inputPassword[i] = keypadChar;
+                    // Display the character on LCD
+                    LCD_Data('*');
+                    // Move forward the cursor
+                    LCD_Command(0x14);
+                    // Break out of the loop
+                    break;
+                }
+            }
+        }
+    }
+    // Null-terminate the inputPassword array
+    inputPassword[PASSWORD_LENGTH] = '\0';
+}
+
+// Function to compare passwords
+uint8_t ComparePasswords(uint8_t *inputPassword, uint8_t *predefinedPassword) {
+    for (i = 0; i < PASSWORD_LENGTH; i++) {
+        if (inputPassword[i] != predefinedPassword[i]) {
+            return 0; // Return 0 if passwords don't match
+        }
+    }
+    return 1; // Return 1 if passwords match
+}
